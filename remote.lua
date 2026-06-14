@@ -1,234 +1,117 @@
-local module = {}
-
-local network = require(script.Parent.Remotes.NetWorker)
-
-local run_service = game:GetService("RunService")
-local http_service = game:GetService("HttpService")
-local players = game:GetService("Players")
-
-local is_server = run_service:IsServer()
-local network_mode = if is_server then network.Server else network.Client
-
-local function generate_guid()
-	return http_service:GenerateGUID(false)
-end
-
-local request_require = network_mode:RemoteFunction('RequireEvent')
-local request_token = network_mode:RemoteFunction('TokenEvent')
-local adjust_player_tokens = network_mode:RemoteEvent('AdjustTokensEvent')
-
-local require_calls_per_player = {
-	test = 2,
-	test2 = 4
-}
-
-local tokens_per_event = {
-	test = 1,
-	test2 = 2
-}
-module.remote_references = {}
-module.EventTypes = {
-	RemoteEvent = "RemoteEvent",
-	UnreliableRemoteEvent = "UnreliableRemoteEvent",
-	BindableEvent = "BindableEvent",
-}
-module.FunctionTypes = {
-	RemoteFunction = "RemoteFunction",
-	BindableFunction = "BindableFunction",
-}
-
-function module:Event(type_of_event : string, personal_name : string)
-	if not type_of_event or not personal_name then return end
-
-	if is_server then
-		local existing_reference = module.remote_references[personal_name]
-		if existing_reference then
-			return existing_reference.event
-		end
-
-		local coded_name = generate_guid()
-		local event = network_mode[type_of_event](nil, coded_name)	
-		module.remote_references[personal_name] = {
-			event = event,
-			require_calls = require_calls_per_player[personal_name],
-			coded_name = coded_name,
-		}
-		
-		return event
-	else
-		local coded_name, maxed = request_require:Invoke(personal_name)
-		if maxed == nil then
-			return
-		end
-		
-		local event = network_mode[type_of_event](nil, coded_name)
-		if maxed then
-			event.remote.Name = '1010used1010'
-			event.remote.Parent = nil
-		end
-		
-		return event
+local M={}
+local N=require(script.Parent.Remotes.NetWorker)
+local R=game:GetService("RunService")
+local H=game:GetService("HttpService")
+local P=game:GetService("Players")
+local S=R:IsServer()
+local X=if S then N.Server else N.Client
+local function G()return H:GenerateGUID(false)end
+local Q=X:RemoteFunction("RequireEvent")
+local T=X:RemoteFunction("TokenEvent")
+local A=X:RemoteEvent("AdjustTokensEvent")
+local L={test=2,test2=4}
+local C={test=1,test2=2}
+local D={}
+local K={}
+local V={}
+local Y={}
+K.__index=K
+M.remote_references=V
+M.EventTypes={RemoteEvent="RemoteEvent",UnreliableRemoteEvent="UnreliableRemoteEvent",BindableEvent="BindableEvent"}
+M.FunctionTypes={RemoteFunction="RemoteFunction",BindableFunction="BindableFunction"}
+function M:Event(a,b)
+	if not a or not b then return end
+	if S then
+		local c=V[b]
+		if c then return c.event end
+		local d=G()
+		local e=X[a](nil,d)
+		V[b]={event=e,require_calls=L[b],coded_name=d}
+		return e
 	end
+	local c,d=Q:Invoke(b)
+	if d==nil then return end
+	local e=X[a](nil,c)
+	if d then e.remote.Name="1010used1010" e.remote.Parent=nil end
+	return e
 end
-
--- for client
-local token_methods = {}
-token_methods.__index = token_methods
-
-local token_player_data = {}
-
-local function rotate_token(old : string, new : string)
-	local token_data = token_player_data[old]
-	if not token_data then
-		return
-	end
-	if not token_data.used then
-		return -- dont rotate, maybe have already been rotated due to order between Wait and Connect
-	end
-
-	token_player_data[old] = nil
-
-	token_data.param_token = new
-	token_data.used = false
-	token_player_data[new] = token_data
+local function Z(a,b)
+	local c=Y[a]
+	if not c or not c.used then return end
+	Y[a]=nil
+	c.param_token=b
+	c.used=false
+	Y[b]=c
 end
-
-function module:CreateParamToken(personal_name : string, ...:any): {param_token : string}
-	if is_server then return end
-	
-	local name = request_token:Invoke(personal_name, ...)
-	if not name then
-		return
-	end
-	
-	local token_data = setmetatable({
-		param_token = name,
-		used = false
-	}, token_methods)
-	token_player_data[name] = token_data
-	return token_data
+function M:CreateParamToken(a,...:any):{param_token:string}
+	if S then return end
+	local b=T:Invoke(a,...)
+	if not b then return end
+	local c=setmetatable({param_token=b,used=false},K)
+	Y[b]=c
+	return c
 end
-
-function token_methods:Use(timeout : number)
-	local started = os.clock()
-
+function K:Use(a:number)
+	local b=os.clock()
 	while self.used do
-		if timeout and os.clock() - started > timeout then
-			return nil
-		end
-
+		if a and os.clock()-b>a then return nil end
 		task.wait()
 	end
-
-	self.used = true
+	self.used=true
 	return self.param_token
 end
-
--- for server
-local player_info_cache = {}
-
-function module:GetParams(player : Player, token : string, personal_name : string): {any}
-	if not is_server then return end
-	if typeof(token) ~= "string" then return end
-	if typeof(personal_name) ~= "string" then return end
-	
-	local player_info = player_info_cache[player]
-	if not player_info then return end
-	
-	local event_to_player = player_info[personal_name]
-	if not event_to_player then return end
-	
-	local params = event_to_player.tokens[token]	
-	if not params then return end
-	
-	local new_token = generate_guid()
-	
-	event_to_player.tokens[token] = nil
-	event_to_player.tokens[new_token] = params
-	
-	adjust_player_tokens:Fire({false, player}, token, new_token)
-	
-	return params
+function M:GetParams(a:Player,b:string,c:string):{any}
+	if not S or typeof(b)~="string" or typeof(c)~="string" then return end
+	local d=D[a]
+	if not d then return end
+	local e=d[c]
+	if not e then return end
+	local f=e.tokens[b]
+	if not f then return end
+	local g=G()
+	e.tokens[b]=nil
+	e.tokens[g]=f
+	A:Fire({false,a},b,g)
+	return f
 end
-
-
-local function create_player_info(player, personal_name)
-	local player_info = player_info_cache[player]
-	if not player_info then
-		player_info = {}
-		player_info_cache[player] = player_info
-	end
-
-	local event_info = player_info[personal_name]
-	if not event_info then
-		event_info = {
-			require_calls = 0,
-			tokens = {},
-			token_count = 0,
-		}
-		player_info[personal_name] = event_info
-	end
-
-	return event_info
+local function W(a,b)
+	local c=D[a]
+	if not c then c={} D[a]=c end
+	local d=c[b]
+	if not d then d={require_calls=0,tokens={},token_count=0} c[b]=d end
+	return d
 end
-
-if is_server then	
-	request_require:OnInvoke(function(player : Player, personal_name : string)	
-		if typeof(personal_name) ~= 'string' then return end
-		local require_call_limit = require_calls_per_player[personal_name]
-		if not require_call_limit then return end
-
-		local remote_reference = module.remote_references[personal_name]
-		if not remote_reference then return end
-		
-		local event_info = create_player_info(player, personal_name)
-		
-		if event_info.require_calls < require_call_limit then
-			event_info.require_calls += 1
-			
-			return remote_reference.coded_name, event_info.require_calls == require_call_limit
+if S then
+	Q:OnInvoke(function(a:Player,b:string)
+		if typeof(b)~="string" then return end
+		local c=L[b]
+		if not c then return end
+		local d=V[b]
+		if not d then return end
+		local e=W(a,b)
+		if e.require_calls<c then
+			e.require_calls+=1
+			return d.coded_name,e.require_calls==c
+		end
+		a:Kick("Somthing went wrong")
+	end)
+	T:OnInvoke(function(a,b:string,...)
+		if typeof(b)~="string" or not L[b] or not V[b] then return end
+		local c=C[b]
+		if not c then return end
+		local d=W(a,b)
+		local e=G()
+		if d.token_count<c then
+			d.tokens[e]=table.pack(...)
+			d.token_count+=1
 		else
-			player:Kick('Somthing went wrong')
+			a:Kick("Somthing went wrong")
+			return
 		end
+		return e
 	end)
-	
-	request_token:OnInvoke(function(player, personal_name : string, ...)
-		if typeof(personal_name) ~= "string" then return end
-		
-		if not require_calls_per_player[personal_name] then
-			return
-		end
-		if not module.remote_references[personal_name] then
-			return
-		end
-		local token_limit = tokens_per_event[personal_name]
-		if not token_limit then
-			return
-		end
-		
-		local event_info = create_player_info(player, personal_name)
-		
-		local token_name = generate_guid()
-		if event_info.token_count < token_limit then
-			event_info.tokens[token_name] = table.pack(...)
-			event_info.token_count += 1
-		else
-			player:Kick('Somthing went wrong')
-			return
-		end
-		
-		return token_name
-	end)
-	
-	players.PlayerRemoving:Connect(function(player)
-		player_info_cache[player] = nil
-	end)
+	P.PlayerRemoving:Connect(function(a)D[a]=nil end)
+else
+	A:Connect(function(a:string,b:string)Z(a,b)end)
 end
-
-if not is_server then
-	adjust_player_tokens:Connect(function(old : string, new : string)
-		rotate_token(old, new)
-	end)
-end
-
-return module
+return M
